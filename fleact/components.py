@@ -40,12 +40,22 @@ class ReactiveElement(ReactiveComponent):
         self.content = content
         self.target = target
         self.props = props
+        self.callbacks = {}
+        self.if_else = None
         self.state = {}  # Store reactive variables
 
         # Ensure the element has a unique fleact-id
         self.props["fleact-id"] = self.fleact_id
         
         register_component(self)
+    def set_if_else(self, condition):
+            """
+            Sets the if_else property for conditional rendering.
+            """
+            if isinstance(condition, bool):
+                self.if_else = condition
+            else:
+                raise ValueError("if_else must be a boolean value.")
 
     def set_state(self, key, value):
         """Set a reactive state variable."""
@@ -59,8 +69,31 @@ class ReactiveElement(ReactiveComponent):
         """
         Renders the HTML for the element with the specified tag and properties.
         """
-        # Replace 'class_name' with 'class' in props
-        attributes = " ".join(
-            f'{("class" if key == "class_name" else key)}="{value}"' for key, value in self.props.items()
-        )
+
+        callbacks_metadata = {
+            name: {"on_load": config.get("on_load", False)} for name, config in self.callbacks.items()
+        }
+        self.props["fleact-callbacks"] = json.dumps(callbacks_metadata).replace('"', "&quot;")
+
+        attributes_list = []
+        for key, value in self.props.items():
+            if key == "class_name":
+                attributes_list.append(f'class="{value}"')
+            elif key == "callbacks":
+                continue
+            elif key == "props":
+                for prop_key, prop_value in value.items():
+                    attributes_list.append(f'{prop_key}="{prop_value}"')
+            else:
+                attributes_list.append(f'{key}="{value}"')
+                
+            if self.if_else is not None:
+                attributes_list.append(f'fleact-if="{self.if_else}"')
+                attributes_list.append('style="display: none;"')
+                
+        attributes = " ".join(attributes_list)
         return f"<{self.tag} {attributes}>{self.content}</{self.tag}>"
+    
+    def get_on_load_callbacks(self):
+        """Retrieve all callbacks marked as on_load=True."""
+        return {name: config["call"] for name, config in self.callbacks.items() if config.get("on_load", False)}

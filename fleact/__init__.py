@@ -3,6 +3,7 @@ from flask import render_template
 from flask_socketio import SocketIO, send, emit
 import json
 from fleact.registry import find_element_by_fleact_id
+from fleact.ws_script import ws_script
 class Fleact:
     """
     A Flask extension for adding WebSocket-based reactivity.
@@ -11,67 +12,7 @@ class Fleact:
     def __init__(self, app=None):
         self.clients = []
         self.lock = Lock()
-        self.ws_script = """
-        <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
-        <script>
-            const socket = io.connect("http://" + window.location.host);
-
-            socket.on("connect", () => {
-                console.log("Connected to WebSocket");
-            });
-
-// Updated socket.on logic
-socket.on("message", (data) => {
-    console.log("Received message:", data);
-    const parsed = typeof data === "string" ? JSON.parse(data) : data; // Check if it's a string before parsing
-    console.log("Parsed message:", parsed);
-    console.log("Parsed message:", parsed.target);
-
-    const targetElement = document.querySelector(`[fleact-id="${parsed.target}"]`);
-    if (!targetElement) {
-        console.error("Target element not found for fleact-id:", parsed.target);
-        return;
-    }
-
-    if (parsed.action === "update-counter") {
-        console.log("Updating counter:", parsed.value);
-        targetElement.innerText = "Counter: " + parsed.value;
-    } else if (parsed.action === "update-content") {
-        console.log("Updating content:", parsed.content);
-        targetElement.innerText = parsed.content;
-    }
-});
-
-
-
-function sendMessage(message, event) {
-    // Ensure the event is valid
-    event = event || window.event;
-
-    // Get the element that triggered the event
-    const target = event.target || event.srcElement;
-
-    // Log information about the target element
-    console.log("Event Target:", target);
-
-    // Optionally include details about the element in the message
-    const elementInfo = {
-        tag: target.tagName,
-        classes: target.className,
-        attributes: [...target.attributes].map(attr => ({
-            name: attr.name,
-            value: attr.value
-        })),
-        text: target.innerText || target.textContent
-    };
-
-    console.log("Element Info:", elementInfo);
-    const fleact_id = elementInfo.attributes.find(attr => attr.name === "fleact-id").value;
-    socket.send(JSON.stringify({ message, elementInfo, "fleact-id": fleact_id }));
-}
-
-        </script>
-        """
+        self.ws_script = ws_script
         if app is not None:
             self.init_app(app)
 
@@ -94,18 +35,57 @@ function sendMessage(message, event) {
                 print(f"Message received: {data}")
                 data = json.loads(data)
                 action = data.get("message")
-       
                 fleact_id = data.get("fleact-id")  # Use fleact-id for all actions
+                element = find_element_by_fleact_id(fleact_id)  # Implement this method
+       
                 if action == "increment":
-                    
-                    element = find_element_by_fleact_id(fleact_id)  # Implement this method
                     target_fleact_id = element.target
                     print(f"Target Fleact ID: {target_fleact_id}")
-                    if element:
-                        current_counter = element.get_state("counter", 0)
-                        new_counter = current_counter + data.get("amount", 1)
-                        element.set_state("counter", new_counter)
-                        self.broadcast("update-counter", {"target": target_fleact_id, "value": new_counter})
+                    current_counter = element.get_state("counter", 0)
+                    new_counter = current_counter + data.get("amount", 1)
+                    element.set_state("counter", new_counter)
+                    self.broadcast("update-counter", {"target": target_fleact_id, "value": new_counter})
+                elif action == "trigger-callback":
+                    callback_name = data.get("callback_name")
+                    if callback_name in element.callbacks:
+                        callback_config = element.callbacks[callback_name]
+                        callback_function = callback_config.get("call")
+                        if callable(callback_function):
+                            # Execute the callback function
+                            print(f"Executing callback: {callback_name}")
+                            callback_result = callback_function()
+
+                            if isinstance(callback_result, dict):  # Ensure structured response
+                                print(f"Callback result: {callback_result}")
+                                if "reactiveActions" in callback_result:
+                                    actions = callback_result["reactiveActions"]
+                                    if isinstance(actions, list):
+                                        for action in actions:
+                                            if action["action"] == "if-else":
+                                                element.set_if_else(action["value"])
+                                                if "targetValue" in action:
+                                                    target_element = find_element_by_fleact_id(element.callbacks[data["callback_name"]]["target"])
+                                                    target_element.set_if_else(action["targetValue"])
+                                                self.broadcast("if-else", action)
+                                            elif action["action"] == "update-content":
+                                                element.set_state("content", action["content"])
+                                                self.broadcast("state-updated", action)
+                                                if "targetContent" in action:
+                                                    target_element = find_element_by_fleact_id(element.callbacks[data["callback_name"]]["target"])
+                                                    target_element.set_state("content", action["targetContent"])
+                                                    self.broadcast("state-updated", action)
+                                                
+                                    else:
+                                        print(f"Invalid reactiveActions format: {actions}")
+                                else:
+                                    self.broadcast("state-updated", callback_result)
+                            else:
+                                print(f"Invalid callback result format: {callback_result}")
+
+                elif action == "update-state":
+                    state = data.get("state")
+                    element.state.update(state)
+                    self.broadcast("state-updated", state)
                 elif action == "update-content":
                     content = data.get("content")
                     self.broadcast("update-content", {"fleact-id": fleact_id, "content": content})
@@ -137,6 +117,21 @@ function sendMessage(message, event) {
                     self.broadcast("remove-child", {"parent-fleact-id": parent_fleact_id, "child-fleact-id": child_fleact_id})
                 else:
                     print(f"Unknown action: {action}")
+                    
+            @self.socketio.on("get-if-else")
+            def handle_get_if_else(data):
+                fleact_id = data.get("fleact-id")
+                if not fleact_id:
+                    print("fleact-id not provided")
+                    return {"error": "fleact-id not provided"}
+
+                # Find the element by fleact-id
+                element = find_element_by_fleact_id(fleact_id)
+                if not element:
+                    print(f"Element with fleact-id {fleact_id} not found")
+                    return {"error": f"Element with fleact-id {fleact_id} not found"}
+
+                return {"if_else": element.if_else}
 
 
     def render_html_string(self, html_string):
@@ -145,10 +140,8 @@ function sendMessage(message, event) {
         """
         # Find the closing </body> or </html> tag and inject the WebSocket script
         if "</body>" in html_string:
-            print(html_string.replace("</body>", f"{self.ws_script}</body>"))
             return html_string.replace("</body>", f"{self.ws_script}</body>")
         elif "</html>" in html_string:
-            print(html_string.replace("</html>", f"{self.ws_script}</html>"))
             return html_string.replace("</html>", f"{self.ws_script}</html>")
         else:
             # If no tags are found, append the script to the end
@@ -180,6 +173,5 @@ function sendMessage(message, event) {
         """
         Broadcast an event with data to all connected clients.
         """
-        data["action"] = event
-        send(data, broadcast=True)
+        emit(event, data)
 

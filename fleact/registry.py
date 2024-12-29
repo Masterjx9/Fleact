@@ -12,16 +12,11 @@ def find_element_by_fleact_id(fleact_id):
     """
     Retrieve a component by its fleact-id.
     """
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
-    print(fleact_id)
     return component_registry.get(fleact_id)
+
+def get_all_registered_elements():
+    """
+    Retrieve all registered components from the global registry.
+    """
+    return component_registry.values()
+

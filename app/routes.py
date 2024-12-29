@@ -50,7 +50,8 @@ def div_if_else_test():
                 "call": get_fake_data,
                 "on_load": True,
                 "target": divElementIf.props["fleact-id"]
-            }
+            },
+            
         }
     divElementIf.set_if_else(True)
     divElementElse = ReactiveElement(
@@ -94,6 +95,29 @@ def template_test():
     pElement.set_state("counter", 0)
     
     return fleact.render_template_with_ws(
+    "index.html",
+    pElement=pElement.render(),  
+    button=button.render()
+)
+    
+@app.route("/pythoninjectiontest")
+def pythoninjectiontest():
+    pElement = ReactiveElement(
+        tag="p",
+        content="Counter: 0",
+        id="counter-value"
+    )
+    button = ReactiveElement(
+        tag="button",
+        content="Click Me!",
+        id="submit-button",
+        class_name="btn-primary",
+        onclick="sendMessage('increment')",
+        target=pElement.props["fleact-id"]
+    )
+    pElement.set_state("counter", 0)
+    
+    return fleact.render_fleact_template(
     "index.html",
     pElement=pElement.render(),  
     button=button.render()

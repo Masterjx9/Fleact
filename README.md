@@ -8,6 +8,9 @@ Fleact is a work-in-progress (🚧 WIP) **Python-based reactive frontend framewo
 ## 🌐 WebSocket-Powered Reactivity
 - Effortlessly update your frontend components in real-time.
 
+## 🐍 Python-In-Html
+- Write Python code directly in your HTML templates.
+
 ## 🔐 State Management
 - Manage and update component states with ease.
 

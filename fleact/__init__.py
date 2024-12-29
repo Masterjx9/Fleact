@@ -2,8 +2,9 @@ from threading import Lock
 from flask import render_template
 from flask_socketio import SocketIO, send, emit
 import json
-from fleact.registry import find_element_by_fleact_id
+from fleact.registry import find_element_by_fleact_id, get_all_registered_elements
 from fleact.ws_script import ws_script
+from fleact.components import ReactiveElement
 class Fleact:
     """
     A Flask extension for adding WebSocket-based reactivity.
@@ -62,18 +63,23 @@ class Fleact:
                                     if isinstance(actions, list):
                                         for action in actions:
                                             if action["action"] == "if-else":
-                                                element.set_if_else(action["value"])
+                                                if "value" in action:
+                                                    element.set_if_else(action["value"])
                                                 if "targetValue" in action:
                                                     target_element = find_element_by_fleact_id(element.callbacks[data["callback_name"]]["target"])
                                                     target_element.set_if_else(action["targetValue"])
                                                 self.broadcast("if-else", action)
                                             elif action["action"] == "update-content":
-                                                element.set_state("content", action["content"])
-                                                self.broadcast("state-updated", action)
-                                                if "targetContent" in action:
-                                                    target_element = find_element_by_fleact_id(element.callbacks[data["callback_name"]]["target"])
-                                                    target_element.set_state("content", action["targetContent"])
-                                                    self.broadcast("state-updated", action)
+                                                if "content" in action:
+                                                    if "target" in action:
+                                                        action["target"] = fleact_id
+                                                        element.set_state("content", action["content"])
+                                                        self.broadcast("state-updated", action)
+                                                    if "targetContent" in action:
+                                                        action["target"] = element.callbacks[data["callback_name"]]["target"]
+                                                        target_element = find_element_by_fleact_id(element.callbacks[data["callback_name"]]["target"])
+                                                        target_element.set_state("content", action["targetContent"])
+                                                        self.broadcast("state-updated", action)
                                                 
                                     else:
                                         print(f"Invalid reactiveActions format: {actions}")
@@ -154,6 +160,64 @@ class Fleact:
         rendered_html = render_template(template_name, **context)
         return self.render_html_string(rendered_html)
 
+    def render_fleact_template(self, template_name, **context):
+        """
+        Renders a Jinja template with a <Fleact> component.
+        Reads and executes the <Fleact> component's Python code, preserving indentation.
+        """
+        rendered_html = render_template(template_name, **context)
+        lines = rendered_html.split("\n")
+        
+        fleact_component = []
+        in_fleact = False
+
+        # Extract the Python code within the <Fleact> tags
+        for line in lines:
+            if "<Fleact>" in line:
+                in_fleact = True
+                continue
+            elif "</Fleact>" in line:
+                in_fleact = False
+                break
+            elif in_fleact:
+                fleact_component.append(line)
+
+        if not fleact_component:
+            raise ValueError("No <Fleact> component found in template")
+
+        # Combine the extracted lines, maintaining original indentation
+        fleact_code = "\n".join(fleact_component)
+
+        # Include reactive elements in the execution context
+        context["ReactiveElement"] = ReactiveElement
+        context["registered_elements"] = list(get_all_registered_elements())
+
+        # Execute the Python code within the current context
+        try:
+            exec(fleact_code, globals(), context)
+        except Exception as e:
+            raise RuntimeError(f"Error executing <Fleact> block: {e}")
+
+        # Remove the <Fleact> block from the final HTML
+        cleaned_lines = []
+        in_fleact_block = False
+
+        for line in lines:
+            if "<Fleact>" in line:
+                in_fleact_block = True
+            elif "</Fleact>" in line:
+                in_fleact_block = False
+            elif not in_fleact_block:
+                cleaned_lines.append(line)
+        
+        # Recombine the cleaned lines into the final HTML
+        rendered_html = "\n".join(cleaned_lines)
+
+        # Return the cleaned HTML with the Python code executed
+        return self.render_html_string(rendered_html)
+
+
+    
     def handle_websocket(self, ws):
         """
         WebSocket handler for managing reactive updates.

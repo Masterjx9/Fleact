@@ -5,22 +5,52 @@ import json
 from fleact.registry import find_element_by_fleact_id, get_all_registered_elements
 from fleact.ws_script import ws_script
 from fleact.components import ReactiveElement
+import importlib
+import os
+import sys
+
 class Fleact:
     """
     A Flask extension for adding WebSocket-based reactivity.
     """
 
-    def __init__(self, app=None):
+    def __init__(self, app=None, auto_import_modules=True):
         self.clients = []
+        self.auto_import_modules = auto_import_modules
+        self.module_context = {}
         self.lock = Lock()
         self.ws_script = ws_script
         if app is not None:
             self.init_app(app)
+            
+            
+    def load_app_modules(self, app):
+        """Dynamically load all modules in the app folder."""
+        app_folder = os.path.dirname(app.root_path)
+        sys.path.insert(0, app_folder)  # Add app folder to sys.path
+
+        excluded_dirs = {".venv", "venv", "__pycache__", "Lib", "site-packages"}
+        for root, dirs, files in os.walk(app_folder):
+            # Filter out excluded directories
+            dirs[:] = [d for d in dirs if d not in excluded_dirs]
+            for file in files:
+                if file.endswith(".py") and file != "__init__.py":
+                    module_path = os.path.relpath(os.path.join(root, file), app_folder).replace(os.sep, ".")
+                    module_name = module_path.replace(".py", "")  # Clean module name
+                    try:
+                        module = importlib.import_module(module_name)
+                        self.module_context[module_name] = module
+                        print(f"Loaded module: {module_name}")
+                    except (ImportError, TypeError) as e:
+                        print(f"Error importing module {module_name}: {e}")
+
 
     def init_app(self, app):
             """
             Initialize the Flask app with WebSocket support.
             """
+            if self.auto_import_modules:
+                self.load_app_modules(app)
             self.socketio = SocketIO(app)
 
             @self.socketio.on("connect")
@@ -188,13 +218,17 @@ class Fleact:
         # Combine the extracted lines, maintaining original indentation
         fleact_code = "\n".join(fleact_component)
 
+        execution_context = {}
+        execution_context.update(self.loaded_modules)
+        execution_context.update(context) 
+        
         # Include reactive elements in the execution context
-        context["ReactiveElement"] = ReactiveElement
-        context["registered_elements"] = list(get_all_registered_elements())
+        # context["ReactiveElement"] = ReactiveElement
+        # context["registered_elements"] = list(get_all_registered_elements())
 
         # Execute the Python code within the current context
         try:
-            exec(fleact_code, globals(), context)
+            exec(fleact_code, {**self.module_context}, execution_context)
         except Exception as e:
             raise RuntimeError(f"Error executing <Fleact> block: {e}")
 

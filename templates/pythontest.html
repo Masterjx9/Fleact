@@ -1,0 +1,24 @@
+<Fleact>
+import requests
+response = requests.get("https://jsonplaceholder.typicode.com/posts")
+posts = response.json()
+print(posts)
+print("Accessing Reactive Elements:")
+for element in registered_elements:
+    print(element.fleact_id, element.tag, element.props)
+</Fleact>
+    
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reactive Flask</title>
+    </head>
+    <body>
+        <h1>Reactive Counter</h1>
+        {{ pElement|safe }}
+        {{ button|safe }}
+    </body>
+    </html>
+    

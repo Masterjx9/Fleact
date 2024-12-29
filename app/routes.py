@@ -118,7 +118,7 @@ def pythoninjectiontest():
     pElement.set_state("counter", 0)
     
     return fleact.render_fleact_template(
-    "index.html",
+    "pythontest.html",
     pElement=pElement.render(),  
     button=button.render()
 )
